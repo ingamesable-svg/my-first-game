@@ -1,0 +1,556 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+  <title>⭐ Star Catcher</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      background: #0a0a2e;
+      font-family: 'Segoe UI', sans-serif;
+      overflow: hidden;
+      height: 100dvh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      touch-action: none;
+    }
+
+    /* ── HUD ── */
+    #hud {
+      width: 100%;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 12px 20px;
+      background: rgba(255,255,255,0.06);
+      backdrop-filter: blur(6px);
+      z-index: 10;
+    }
+    .hud-box { text-align: center; }
+    .hud-label { font-size: 11px; color: #aaa; letter-spacing: 1px; text-transform: uppercase; }
+    .hud-value { font-size: 24px; font-weight: 700; color: #fff; }
+    #lives-display { font-size: 20px; letter-spacing: 2px; }
+    #timer-bar-wrap {
+      width: 100%;
+      height: 4px;
+      background: rgba(255,255,255,0.1);
+    }
+    #timer-bar {
+      height: 4px;
+      background: linear-gradient(90deg, #ff6b6b, #ffd93d);
+      width: 100%;
+      transition: width 0.1s linear;
+    }
+
+    /* ── CANVAS ── */
+    #gameCanvas {
+      display: block;
+      flex: 1;
+      width: 100%;
+      cursor: none;
+    }
+
+    /* ── OVERLAYS ── */
+    .overlay {
+      position: fixed; inset: 0;
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      background: rgba(10,10,46,0.92);
+      backdrop-filter: blur(8px);
+      z-index: 20;
+      gap: 16px;
+      padding: 30px;
+    }
+    .overlay h1 { font-size: 48px; }
+    .overlay h2 { font-size: 28px; color: #ffd93d; text-align: center; }
+    .overlay p  { color: #aaa; font-size: 15px; text-align: center; line-height: 1.6; max-width: 320px; }
+    .stat-row   { display: flex; gap: 30px; }
+    .stat-box   { background: rgba(255,255,255,0.08); border-radius: 12px; padding: 14px 22px; text-align: center; }
+    .stat-box span { display: block; }
+    .stat-box .s-label { font-size: 11px; color: #aaa; letter-spacing: 1px; }
+    .stat-box .s-val   { font-size: 30px; font-weight: 700; color: #fff; }
+
+    button {
+      background: linear-gradient(135deg, #6c63ff, #3ecfcf);
+      color: #fff; border: none; border-radius: 50px;
+      font-size: 18px; font-weight: 700;
+      padding: 16px 48px; cursor: pointer;
+      box-shadow: 0 8px 24px rgba(108,99,255,0.5);
+      transition: transform .1s, box-shadow .1s;
+    }
+    button:active { transform: scale(0.95); box-shadow: 0 4px 12px rgba(108,99,255,0.4); }
+
+    .hidden { display: none !important; }
+
+    /* Combo flash */
+    #combo-flash {
+      position: fixed;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%,-50%) scale(0);
+      font-size: 36px;
+      font-weight: 900;
+      color: #ffd93d;
+      text-shadow: 0 0 20px #ffd93d;
+      pointer-events: none;
+      z-index: 15;
+      transition: transform .15s ease-out, opacity .3s ease;
+      opacity: 0;
+    }
+  </style>
+</head>
+<body>
+
+<!-- HUD -->
+<div id="hud">
+  <div class="hud-box">
+    <div class="hud-label">Score</div>
+    <div class="hud-value" id="score-display">0</div>
+  </div>
+  <div class="hud-box">
+    <div class="hud-label">Lives</div>
+    <div id="lives-display">❤️❤️❤️</div>
+  </div>
+  <div class="hud-box">
+    <div class="hud-label">Best</div>
+    <div class="hud-value" id="best-display">0</div>
+  </div>
+</div>
+<div id="timer-bar-wrap"><div id="timer-bar"></div></div>
+
+<canvas id="gameCanvas"></canvas>
+
+<!-- Combo flash -->
+<div id="combo-flash"></div>
+
+<!-- START SCREEN -->
+<div class="overlay" id="startScreen">
+  <h1>⭐</h1>
+  <h2>Star Catcher</h2>
+  <p>Slide your finger to move the basket.<br>
+     Catch ⭐ stars for points, avoid 💣 bombs!</p>
+  <button id="startBtn">Play Now</button>
+</div>
+
+<!-- GAME OVER SCREEN -->
+<div class="overlay hidden" id="gameOverScreen">
+  <h1>💫</h1>
+  <h2>Game Over!</h2>
+  <div class="stat-row">
+    <div class="stat-box">
+      <span class="s-label">Score</span>
+      <span class="s-val" id="final-score">0</span>
+    </div>
+    <div class="stat-box">
+      <span class="s-label">Best</span>
+      <span class="s-val" id="final-best">0</span>
+    </div>
+  </div>
+  <button id="restartBtn">Play Again</button>
+</div>
+
+<script>
+// ── CONFIG ──────────────────────────────────────────────
+const CFG = {
+  basketW: 90, basketH: 22,
+  basketY: 0.88,           // fraction of canvas height
+  fallSpeed: 2.8,
+  spawnRate: 1400,         // ms between items
+  bombChance: 0.18,
+  goldenChance: 0.07,
+  lives: 3,
+  canvasColor: '#0a0a2e',
+  speedupInterval: 8,      // seconds between speed boosts
+  speedupFactor: 1.12,
+};
+
+// ── STATE ────────────────────────────────────────────────
+let canvas, ctx, animId;
+let items = [], particles = [], stars = [];
+let score = 0, lives = CFG.lives, best = +localStorage.getItem('starBest') || 0;
+let basketX = 0;
+let gameRunning = false;
+let lastSpawn = 0, spawnInterval = CFG.spawnRate;
+let fallSpeed = CFG.fallSpeed;
+let elapsed = 0, lastTime = 0;
+let combo = 0, lastComboTime = 0;
+let speedTimer = 0;
+
+// ── ELEMENTS ─────────────────────────────────────────────
+const scoreEl   = document.getElementById('score-display');
+const bestEl    = document.getElementById('best-display');
+const livesEl   = document.getElementById('lives-display');
+const timerBar  = document.getElementById('timer-bar');
+const comboEl   = document.getElementById('combo-flash');
+const startScr  = document.getElementById('startScreen');
+const overScr   = document.getElementById('gameOverScreen');
+const finalScore= document.getElementById('final-score');
+const finalBest = document.getElementById('final-best');
+
+// ── INIT ─────────────────────────────────────────────────
+function initCanvas() {
+  canvas = document.getElementById('gameCanvas');
+  ctx = canvas.getContext('2d');
+  resizeCanvas();
+  window.addEventListener('resize', resizeCanvas);
+}
+
+function resizeCanvas() {
+  canvas.width  = window.innerWidth;
+  canvas.height = window.innerHeight - document.getElementById('hud').offsetHeight - 4;
+  basketX = canvas.width / 2;
+}
+
+// ── BACKGROUND STARS ────────────────────────────────────
+function makeStars() {
+  stars = [];
+  for (let i = 0; i < 120; i++) {
+    stars.push({
+      x: Math.random() * window.innerWidth,
+      y: Math.random() * window.innerHeight,
+      r: Math.random() * 1.5 + 0.3,
+      a: Math.random(),
+      da: (Math.random() * 0.01 + 0.003) * (Math.random() < 0.5 ? 1 : -1),
+    });
+  }
+}
+
+function drawStars() {
+  stars.forEach(s => {
+    s.a += s.da;
+    if (s.a > 1 || s.a < 0) s.da *= -1;
+    ctx.globalAlpha = s.a * 0.8;
+    ctx.fillStyle = '#fff';
+    ctx.beginPath();
+    ctx.arc(s.x, s.y, s.r, 0, Math.PI * 2);
+    ctx.fill();
+  });
+  ctx.globalAlpha = 1;
+}
+
+// ── FALLING ITEMS ─────────────────────────────────────
+const EMOJIS = {
+  star:   { emoji: '⭐', points: 10, color: '#ffd93d' },
+  golden: { emoji: '🌟', points: 30, color: '#ff9f43' },
+  bomb:   { emoji: '💣', points: 0,  color: '#ff6b6b' },
+};
+
+function spawnItem() {
+  const rand = Math.random();
+  let type;
+  if (rand < CFG.bombChance)                       type = 'bomb';
+  else if (rand < CFG.bombChance + CFG.goldenChance) type = 'golden';
+  else                                              type = 'star';
+
+  const info = EMOJIS[type];
+  items.push({
+    type, emoji: info.emoji, points: info.points, color: info.color,
+    x: Math.random() * (canvas.width - 60) + 30,
+    y: -30,
+    size: type === 'golden' ? 36 : 30,
+    speed: fallSpeed * (0.85 + Math.random() * 0.35),
+    rot: 0,
+    rotSpeed: (Math.random() - 0.5) * 0.08,
+  });
+}
+
+function updateItems(dt) {
+  const bx = basketX, by = canvas.height * CFG.basketY;
+  const hw = CFG.basketW / 2, hh = CFG.basketH;
+
+  items = items.filter(item => {
+    item.y += item.speed;
+    item.rot += item.rotSpeed;
+
+    // Catch check
+    if (
+      item.y + item.size / 2 > by - hh &&
+      item.y - item.size / 2 < by + hh &&
+      item.x > bx - hw - 10 &&
+      item.x < bx + hw + 10
+    ) {
+      if (item.type === 'bomb') {
+        loseLife(item.x, item.y);
+        spawnParticles(item.x, item.y, '#ff6b6b', 12);
+      } else {
+        const now = performance.now();
+        if (now - lastComboTime < 1800) combo++;
+        else combo = 1;
+        lastComboTime = now;
+
+        const bonus = combo >= 3 ? combo : 1;
+        const pts = item.points * bonus;
+        score += pts;
+        scoreEl.textContent = score;
+        spawnParticles(item.x, item.y, item.color, 10);
+        spawnScorePopup(item.x, item.y, '+' + pts);
+        if (combo >= 3) showCombo(combo);
+      }
+      return false;
+    }
+
+    // Missed star (not bomb)
+    if (item.y > canvas.height + 40) {
+      if (item.type !== 'bomb') {
+        loseLife(item.x, canvas.height);
+      }
+      return false;
+    }
+    return true;
+  });
+}
+
+function drawItems() {
+  items.forEach(item => {
+    ctx.save();
+    ctx.translate(item.x, item.y);
+    ctx.rotate(item.rot);
+    ctx.font = `${item.size}px serif`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(item.emoji, 0, 0);
+    ctx.restore();
+  });
+}
+
+// ── BASKET ───────────────────────────────────────────────
+function drawBasket() {
+  const by = canvas.height * CFG.basketY;
+  const bw = CFG.basketW, bh = CFG.basketH;
+  const bx = basketX;
+
+  // Glow
+  ctx.shadowColor = '#6c63ff';
+  ctx.shadowBlur  = 18;
+
+  // Body
+  const grad = ctx.createLinearGradient(bx - bw/2, by - bh, bx + bw/2, by + bh/2);
+  grad.addColorStop(0, '#8a84ff');
+  grad.addColorStop(1, '#3ecfcf');
+  ctx.fillStyle = grad;
+  ctx.beginPath();
+  ctx.moveTo(bx - bw/2, by - bh/2);
+  ctx.lineTo(bx + bw/2, by - bh/2);
+  ctx.lineTo(bx + bw/2 - 6, by + bh/2);
+  ctx.lineTo(bx - bw/2 + 6, by + bh/2);
+  ctx.closePath();
+  ctx.fill();
+
+  // Rim
+  ctx.strokeStyle = '#fff';
+  ctx.lineWidth = 3;
+  ctx.beginPath();
+  ctx.moveTo(bx - bw/2 - 4, by - bh/2);
+  ctx.lineTo(bx + bw/2 + 4, by - bh/2);
+  ctx.stroke();
+
+  ctx.shadowBlur = 0;
+}
+
+// ── PARTICLES ────────────────────────────────────────────
+function spawnParticles(x, y, color, n) {
+  for (let i = 0; i < n; i++) {
+    const angle = Math.random() * Math.PI * 2;
+    const spd   = Math.random() * 4 + 1.5;
+    particles.push({
+      x, y,
+      vx: Math.cos(angle) * spd,
+      vy: Math.sin(angle) * spd - 2,
+      alpha: 1,
+      color,
+      r: Math.random() * 4 + 2,
+    });
+  }
+}
+
+const scorePopups = [];
+function spawnScorePopup(x, y, text) {
+  scorePopups.push({ x, y, text, alpha: 1.0, vy: -1.8 });
+}
+
+function updateParticles() {
+  for (let i = particles.length - 1; i >= 0; i--) {
+    const p = particles[i];
+    p.x += p.vx; p.y += p.vy; p.vy += 0.15;
+    p.alpha -= 0.035;
+    if (p.alpha <= 0) particles.splice(i, 1);
+  }
+  for (let i = scorePopups.length - 1; i >= 0; i--) {
+    const p = scorePopups[i];
+    p.y += p.vy; p.alpha -= 0.025;
+    if (p.alpha <= 0) scorePopups.splice(i, 1);
+  }
+}
+
+function drawParticles() {
+  particles.forEach(p => {
+    ctx.globalAlpha = p.alpha;
+    ctx.fillStyle = p.color;
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
+    ctx.fill();
+  });
+  scorePopups.forEach(p => {
+    ctx.globalAlpha = p.alpha;
+    ctx.fillStyle = '#ffd93d';
+    ctx.font = 'bold 20px Segoe UI';
+    ctx.textAlign = 'center';
+    ctx.fillText(p.text, p.x, p.y);
+  });
+  ctx.globalAlpha = 1;
+}
+
+// ── LIVES & COMBO ─────────────────────────────────────────
+function loseLife(x, y) {
+  lives--;
+  spawnParticles(x ?? basketX, y ?? canvas.height * CFG.basketY, '#ff6b6b', 16);
+  const hearts = ['❤️','❤️','❤️'].slice(0, lives) .join('') +
+                 ['🖤','🖤','🖤'].slice(0, CFG.lives - lives).join('');
+  livesEl.textContent = hearts || '💀';
+
+  canvas.style.animation = 'none';
+  canvas.offsetHeight; // reflow
+  flashScreen();
+
+  if (lives <= 0) setTimeout(endGame, 300);
+}
+
+function flashScreen() {
+  const overlay = document.createElement('div');
+  overlay.style.cssText = `
+    position:fixed;inset:0;background:rgba(255,60,60,0.3);
+    pointer-events:none;z-index:5;border-radius:0;`;
+  document.body.appendChild(overlay);
+  setTimeout(() => overlay.remove(), 250);
+}
+
+function showCombo(n) {
+  comboEl.textContent = `🔥 x${n} COMBO!`;
+  comboEl.style.opacity = '1';
+  comboEl.style.transform = 'translate(-50%,-50%) scale(1.2)';
+  setTimeout(() => {
+    comboEl.style.opacity = '0';
+    comboEl.style.transform = 'translate(-50%,-50%) scale(0)';
+  }, 900);
+}
+
+// ── INPUT ─────────────────────────────────────────────────
+function initInput() {
+  // Touch
+  canvas.addEventListener('touchmove', e => {
+    e.preventDefault();
+    basketX = e.touches[0].clientX;
+    clampBasket();
+  }, { passive: false });
+  canvas.addEventListener('touchstart', e => {
+    basketX = e.touches[0].clientX;
+    clampBasket();
+  }, { passive: true });
+
+  // Mouse (desktop fallback)
+  canvas.addEventListener('mousemove', e => {
+    basketX = e.clientX;
+    clampBasket();
+  });
+}
+
+function clampBasket() {
+  const hw = CFG.basketW / 2 + 4;
+  basketX = Math.max(hw, Math.min(canvas.width - hw, basketX));
+}
+
+// ── GAME LOOP ─────────────────────────────────────────────
+function gameLoop(ts) {
+  if (!gameRunning) return;
+  const dt = Math.min(ts - lastTime, 50);
+  lastTime = ts;
+  elapsed += dt;
+  speedTimer += dt;
+
+  // Speed up over time
+  if (speedTimer >= CFG.speedupInterval * 1000) {
+    speedTimer = 0;
+    fallSpeed  *= CFG.speedupFactor;
+    spawnInterval = Math.max(600, spawnInterval * 0.92);
+  }
+
+  // Timer bar (30s rounds — purely visual)
+  const pct = Math.max(0, 1 - (elapsed % 30000) / 30000);
+  timerBar.style.width = (pct * 100) + '%';
+
+  // Spawn
+  if (ts - lastSpawn > spawnInterval) {
+    spawnItem();
+    lastSpawn = ts;
+  }
+
+  // Draw
+  ctx.fillStyle = CFG.canvasColor;
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  drawStars();
+  updateItems(dt);
+  updateParticles();
+  drawItems();
+  drawBasket();
+  drawParticles();
+
+  animId = requestAnimationFrame(gameLoop);
+}
+
+// ── START / END ───────────────────────────────────────────
+function startGame() {
+  score = 0; lives = CFG.lives; elapsed = 0;
+  fallSpeed = CFG.fallSpeed; spawnInterval = CFG.spawnRate;
+  speedTimer = 0; combo = 0; lastSpawn = 0;
+  items = []; particles = []; scorePopups.length = 0;
+  basketX = canvas.width / 2;
+  scoreEl.textContent = '0';
+  bestEl.textContent = best;
+  livesEl.textContent = '❤️❤️❤️';
+  timerBar.style.width = '100%';
+  startScr.classList.add('hidden');
+  overScr.classList.add('hidden');
+  gameRunning = true;
+  lastTime = performance.now();
+  animId = requestAnimationFrame(gameLoop);
+}
+
+function endGame() {
+  gameRunning = false;
+  cancelAnimationFrame(animId);
+  if (score > best) {
+    best = score;
+    localStorage.setItem('starBest', best);
+  }
+  finalScore.textContent = score;
+  finalBest.textContent  = best;
+  overScr.classList.remove('hidden');
+}
+
+// ── BUTTONS ───────────────────────────────────────────────
+document.getElementById('startBtn').addEventListener('click', () => {
+  bestEl.textContent = best;
+  startGame();
+});
+document.getElementById('restartBtn').addEventListener('click', startGame);
+
+// ── BOOT ─────────────────────────────────────────────────
+initCanvas();
+makeStars();
+initInput();
+bestEl.textContent = best;
+
+// Draw idle background
+(function idleLoop(ts) {
+  if (gameRunning) return;
+  ctx.fillStyle = CFG.canvasColor;
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  drawStars();
+  requestAnimationFrame(idleLoop);
+})();
+</script>
+</body>
+</html>
