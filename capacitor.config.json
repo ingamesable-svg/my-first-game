@@ -1,0 +1,8 @@
+{
+  "appId": "com.starcatcher.game",
+  "appName": "Star Catcher",
+  "webDir": "www",
+  "server": {
+    "androidScheme": "https"
+  }
+}
