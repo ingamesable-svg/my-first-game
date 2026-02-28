@@ -3,6 +3,11 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+  <meta name="theme-color" content="#6c63ff" />
+  <meta name="description" content="Catch stars and avoid bombs! A fun mobile game." />
+  <link rel="manifest" href="manifest.json" />
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text x='50' y='75' font-size='80' text-anchor='middle'>⭐</text></svg>" />
+  <link rel="apple-touch-icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 180 180'><rect fill='%230a0a2e' width='180' height='180'/><text x='90' y='135' font-size='100' text-anchor='middle' fill='%23ffd93d'>⭐</text></svg>" />
   <title>⭐ Star Catcher</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -674,6 +679,13 @@ bestEl.textContent = best;
   drawStars();
   requestAnimationFrame(idleLoop);
 })();
+
+// ── SERVICE WORKER ───────────────────────────────────
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('sw.js').catch(err => {
+    console.log('ServiceWorker registration failed: ', err);
+  });
+}
 </script>
 </body>
 </html>
